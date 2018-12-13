@@ -17,7 +17,7 @@ void output_image(const char * file_name, const int nx, const int ny, float * re
 double wtime(void);
 
 int calc_nrows_from_rank(int rank, int size, int ny);
-void haloExchange(const int ncols, const int nrows, int up, int down, float * image, float * sendbuf, float * recvbuf, MPI_Status status);
+void haloExchange(const int ncols, const int nrows, int up, int down, float * restrict image, float * restrict sendbuf, float * restrict recvbuf, MPI_Status status);
 void sendInitial(const int local_ncols, const int local_nrows, float * restrict image, int size);
 void joinImage(const int local_nrows, const int local_ncols, float * restrict fullImage, float * restrict image, int size, int rank, MPI_Status status);
 
@@ -103,7 +103,6 @@ int main(int argc, char* argv[]){
     }
   }
  haloExchange(local_ncols, local_nrows, up, down, image, sbuf, rbuf, status);
-//  haloExchange(local_ncols, local_nrows, up, down, image, sbuf, rbuf, status);
 
  double tic = wtime();
 
@@ -127,16 +126,6 @@ int main(int argc, char* argv[]){
  }
  double toc = wtime();
 
-//  if (rank == 0) {
-//    for (int j = 0; j < local_nrows+2; j++) {
-//      for (int i = 0; i < local_ncols; i++) {
-//        printf(" %f |", tmp_image[j*(local_ncols)+i]);
-//        //printf(" %d |", j*(local_ncols+2)+i);
-//      }
-//      printf("\n");
-//    }
-// }
-
 // Output
  printf("------------------------------------\n");
  printf(" runtime: %lf s\n", toc-tic);
@@ -144,17 +133,15 @@ int main(int argc, char* argv[]){
  joinImage(local_nrows, local_ncols, fullImage, image, size, rank, status);
 
  if (rank == 0) {
-   // for (int j = 0; j < nx; j++) {
-   //   for (int i = 0; i < ny; i++) {
-   //     printf(" %f |", fullImage[j*(ny)+i]);
-   //   }
-   //   printf("\n");
-   // }
    output_image(OUTPUT_FILE, nx, ny, fullImage);
+   free(fullImage);
+   free(full_tmp_image);
  }
 
 
-
+ free(image);
+ free(sbuf);
+ free(rbuf);
 
   MPI_Finalize();
 }
@@ -194,7 +181,7 @@ void init_image(const int nx, const int ny, float * restrict image, float * rest
   }
 }
 
-void haloExchange(const int ncols, const int nrows, int up, int down, float * image, float * sendbuf, float * recvbuf, MPI_Status status) {
+void haloExchange(const int ncols, const int nrows, int up, int down, float * restrict image, float * restrict sendbuf, float * restrict recvbuf, MPI_Status status) {
   int tag = 0;
 
   for (int i = 0; i < ncols; i++){
@@ -227,15 +214,6 @@ void topStencil(const int nx, const int ny, float * restrict  image, float * res
       tmp_image[j+i*ny] = variable;
     }
   }
-
-  for (int j = 1; j < ny-1; ++j) {
-    float variable = image[j+(nx-1)*ny] * x;
-    variable += image[j +(nx-2)*ny] * y;
-    variable += image[j-1+(nx-1)*ny] * y;
-    variable += image[j+1+(nx-1)*ny] * y;
-    tmp_image[j+(nx-1)*ny] = variable;
-  }
-
   for (int i = 1; i < nx-1; ++i){
    float variable = image[i*ny] * x;
    if (i != 1) variable += image[(i-1)*ny] * y;
@@ -251,15 +229,6 @@ void topStencil(const int nx, const int ny, float * restrict  image, float * res
     variable += image[(ny-1)-1+i*ny] * y;
     tmp_image[(ny-1)+i*ny] = variable;
   }
-
-  float leftTop = image[(nx-1) * ny] * x;
-  leftTop += image[((nx-1)-1) * ny] * y;
-  leftTop += image[1+(nx-1)*ny] * y;
-  tmp_image[(nx-1)*ny] = leftTop;
-  float rightTop = image[(ny-1)+(nx-1) * ny] * x;
-  rightTop += image[(ny-1) + (nx-1-1) * ny] * y;
-  rightTop += image[((ny-1) - 1) + (nx-1) * ny] * y;
-  tmp_image[(ny-1)+(nx-1) * ny] = rightTop;
 }
 void botStencil(const int nx, const int ny, float * restrict  image, float * restrict  tmp_image, int rank, int size){
   float x = 0.6f;
@@ -273,14 +242,6 @@ void botStencil(const int nx, const int ny, float * restrict  image, float * res
       variable += image[j+1+i*ny] * y;
       tmp_image[j+i*ny] = variable;
     }
-  }
-
-  for (int j = 1; j < ny-1; ++j) {
-    float variable = image[j] * x;
-    variable += image[j + nx] * y;
-    variable += image[j-1] * y;
-    variable += image[j+1] * y;
-    tmp_image[j] = variable;
   }
 
   for (int i = 1; i < nx-1; ++i){
@@ -298,16 +259,6 @@ void botStencil(const int nx, const int ny, float * restrict  image, float * res
     variable += image[(ny-1)-1+i*ny] * y;
     tmp_image[(ny-1)+i*ny] = variable;
   }
-
-  float leftBot = image[0] * x;
-  leftBot += image[ny] * x;
-  leftBot += image[1] * x;
-  tmp_image[0] = leftBot;
-  float rightBot = image[ny-1] * x;
-  rightBot += image[(ny-1)+ny] * y;
-  rightBot += image[(ny-1)-1] * y;
-  tmp_image[ny-1] = rightBot;
-
 }
 void stencil(const int nx, const int ny, float * restrict  image, float * restrict  tmp_image, int rank, int size) {
   float x = 0.6f;
@@ -322,26 +273,6 @@ void stencil(const int nx, const int ny, float * restrict  image, float * restri
       tmp_image[j+i*ny] = variable;
     }
   }
-  // when i = 0;
-  for (int j = 1; j < ny-1; ++j) {
-    float variable = image[j] * x;
-    variable += image[j + nx] * y;
-    variable += image[j-1] * y;
-    variable += image[j+1] * y;
-    tmp_image[j] = variable;
-  }
-
-  // when i == nx - 1
-  for (int j = 1; j < ny-1; ++j) {
-    float variable = image[j+(nx-1)*ny] * x;
-    variable += image[j +(nx-2)*ny] * y;
-    variable += image[j-1+(nx-1)*ny] * y;
-    variable += image[j+1+(nx-1)*ny] * y;
-    tmp_image[j+(nx-1)*ny] = variable;
-  }
-
-
-
   // when j == 0
   for (int i = 1; i < nx-1; ++i){
    float variable = image[i*ny] * x;
@@ -358,29 +289,6 @@ void stencil(const int nx, const int ny, float * restrict  image, float * restri
     variable += image[(ny-1)-1+i*ny] * y;
     tmp_image[(ny-1)+i*ny] = variable;
   }
-
-  if (rank != 10){
-    float leftBot = image[0] * x;
-    leftBot += image[ny] * x;
-    leftBot += image[1] * x;
-    tmp_image[0] = leftBot;
-    float rightBot = image[ny-1] * x;
-    rightBot += image[(ny-1)+ny] * y;
-    rightBot += image[(ny-1)-1] * y;
-    tmp_image[ny-1] = rightBot;
-  }
-
-  if (rank != 10){
-    float leftTop = image[(nx-1) * ny] * x;
-    leftTop += image[((nx-1)-1) * ny] * y;
-    leftTop += image[1+(nx-1)*ny] * y;
-    tmp_image[(nx-1)*ny] = leftTop;
-    float rightTop = image[(ny-1)+(nx-1) * ny] * x;
-    rightTop += image[(ny-1) + (nx-1-1) * ny] * y;
-    rightTop += image[((ny-1) - 1) + (nx-1) * ny] * y;
-    tmp_image[(ny-1)+(nx-1) * ny] = rightTop;
-  }
-
 }
 
 void joinImage(const int local_nrows, const int local_ncols, float * restrict fullImage, float * restrict image, int size, int rank, MPI_Status status){
